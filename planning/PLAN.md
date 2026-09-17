@@ -101,7 +101,6 @@ finally/
 ├── db/                       # SQLite file location for local (non-Docker) runs
 │   └── .gitkeep              # Directory exists in repo; finally.db is gitignored
 ├── Dockerfile                # Multi-stage build (Node → Python)
-├── docker-compose.yml        # Optional convenience wrapper
 ├── .env                      # Environment variables (gitignored, .env.example committed)
 └── .gitignore
 ```
@@ -247,20 +246,18 @@ All tables except `users_profile` include a `user_id` column defaulting to `"def
 - `created_at` TEXT (ISO timestamp)
 
 **watchlist** — Tickers the user is watching
-- `id` TEXT PRIMARY KEY (UUID)
 - `user_id` TEXT (default: `"default"`)
 - `ticker` TEXT
 - `added_at` TEXT (ISO timestamp)
-- UNIQUE constraint on `(user_id, ticker)`
+- PRIMARY KEY `(user_id, ticker)`, a composite key with no surrogate `id`, since a row is fully identified by user and ticker
 
 **positions** — Current holdings (one row per ticker per user)
-- `id` TEXT PRIMARY KEY (UUID)
 - `user_id` TEXT (default: `"default"`)
 - `ticker` TEXT
 - `quantity` REAL (fractional shares supported)
 - `avg_cost` REAL
 - `updated_at` TEXT (ISO timestamp)
-- UNIQUE constraint on `(user_id, ticker)`
+- PRIMARY KEY `(user_id, ticker)`. Upserts use `INSERT … ON CONFLICT(user_id, ticker) DO UPDATE`
 
 **trades** — Trade history (append-only log)
 - `id` TEXT PRIMARY KEY (UUID)
@@ -545,10 +542,51 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 ### Technical Notes
 
 - Use `EventSource` for SSE connection to `/api/stream/prices`
-- Canvas-based charting library preferred (Lightweight Charts or Recharts) for performance
+- Charting libraries, one per job:
+  - **Main price chart and P&L chart**: TradingView **Lightweight Charts** (canvas, built for streaming financial series). Check its current docs, since the series API changed between major versions, and keep its default attribution enabled (license requirement)
+  - **Sparklines**: a small hand-rolled inline SVG `<polyline>` component, with no library. A full chart instance per watchlist row is needless overhead
+  - **Portfolio heatmap**: Recharts `Treemap` with a custom content renderer for the colors and labels. Recharts renders SVG, which is fine for a handful of rectangles
 - Price flash effect: on receiving a new price, briefly apply a CSS class with background color transition, then remove it
 - All API calls go to the same origin (`/api/*`) — no CORS configuration needed
 - Tailwind CSS for styling with a custom dark theme
+
+### Connection Status
+
+`EventSource.readyState` only has `CONNECTING`, `OPEN` and `CLOSED`, so the indicator combines it with how recently data arrived:
+
+| Dot | Condition |
+|-----|-----------|
+| 🟢 Green (connected) | `OPEN` and an event arrived within the last 5 seconds |
+| 🟡 Yellow (reconnecting) | `CONNECTING` (initial connect or automatic retry after an error), **or** `OPEN` but no event for more than 5 seconds |
+| 🔴 Red (disconnected) | `CLOSED`, meaning the browser has given up (e.g. an HTTP error response) |
+
+When the state is `CLOSED`, the frontend creates a new `EventSource` every 5 seconds until it connects again. A 1-second interval timer re-evaluates staleness.
+
+### Header Values
+
+- **Cash balance** comes from the last `GET /api/portfolio` response (or the portfolio embedded in a trade response)
+- **Total portfolio value** is computed **on the frontend**: `cash + Σ(position quantity × latest SSE price)`, falling back to the position's `current_price` from the portfolio response until an SSE price arrives. It updates on every SSE event without extra requests
+- The frontend refetches `/api/portfolio` on page load, after each manual trade (or uses the embedded portfolio), and after every chat response that contains at least one executed action. It also refetches `/api/watchlist` after chat responses with executed watchlist changes
+
+### Heatmap Colors
+
+- Each rectangle is sized by `market_value` and colored by the position's `pnl_percent`
+- The color scale runs from red (≤ −5%) through a neutral gray (0%) to green (≥ +5%), with intensity interpolated linearly and clamped at ±5%
+- Labels show the ticker and `pnl_percent`; small rectangles show the ticker only
+
+### Empty & Loading States
+
+| Element | State | Display |
+|---------|-------|---------|
+| Watchlist | No tickers | "Your watchlist is empty — add a ticker above or ask FinAlly" |
+| Watchlist row | No price yet | Price shows `—`, sparkline area blank |
+| Main chart | No ticker selected | Auto-select the first watchlist ticker on load; if the watchlist is empty, show "Select a ticker" |
+| Main chart | Selected, fewer than 2 points | "Waiting for price data…" |
+| Heatmap | No positions | "No positions yet — buy shares with the trade bar or ask FinAlly" |
+| Positions table | No positions | A single row with the same message |
+| P&L chart | Fewer than 2 snapshots | "Collecting portfolio history…" (a snapshot is recorded at startup and every 30s, so this resolves quickly) |
+| Chat | No history | A frontend-only welcome message with 2–3 example prompts (not stored in the DB) |
+| Chat | Waiting for response | Animated typing indicator; input and send button disabled |
 
 ---
 
@@ -622,16 +660,16 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - LLM: structured output parsing handles all valid schemas, graceful handling of malformed responses, trade validation within chat flow
 - API routes: correct status codes, response shapes, error handling
 
-**Frontend (React Testing Library or similar)**:
-- Component rendering with mock data
-- Price flash animation triggers correctly on price changes
-- Watchlist CRUD operations
-- Portfolio display calculations
-- Chat message rendering and loading state
+**Frontend (Vitest + React Testing Library)** — limited to logic-heavy units; rendering and CRUD flows are covered by E2E tests, not duplicated here:
+- Price flash: the flash class is applied on up/down changes and removed afterwards
+- SSE hook: parses events, maintains capped per-ticker history buffers, derives connection status (including the 5s staleness rule)
+- Portfolio calculations: live total value from cash + positions + SSE prices, with fallback to `current_price`
+- Heatmap color scale: the ±5% clamped red–gray–green mapping
+- Chat action rendering: executed vs. failed action outcomes display correctly
 
 ### E2E Tests (in `test/`)
 
-**Infrastructure**: A separate `docker-compose.test.yml` in `test/` that spins up the app container plus a Playwright container. This keeps browser dependencies out of the production image.
+**Infrastructure**: A separate `docker-compose.test.yml` in `test/` that spins up the app container plus a Playwright container (official `mcr.microsoft.com/playwright` image, version-matched to the `@playwright/test` package). This keeps browser dependencies out of the production image and makes runs reproducible across machines. The tests read the app URL from a `BASE_URL` env var (compose sets it to the app service; default `http://localhost:8000`), so developers can also run `npx playwright test` from the host against a running container for faster iteration.
 
 **Environment**: Tests run with `LLM_MOCK=true` by default for speed and determinism.
 
@@ -714,12 +752,24 @@ Frontend and backend agents work in parallel, so these payload shapes need to be
 
 ### 13.7 Frontend
 
+> **✅ Resolved** in §10: item 31 → Connection Status table (readyState plus a 5s staleness check, and manual reconnect after `CLOSED`); item 32 → Header Values (total computed on the frontend from SSE plus positions, with refetch triggers listed); item 33 → Lightweight Charts for the main and P&L charts, inline SVG sparklines, Recharts `Treemap` for the heatmap; item 34 → Empty & Loading States table. Also added: Heatmap Colors (±5% clamped red–gray–green scale), which the E2E "correct colors" check needs.
+
 31. **Connection status mapping:** `EventSource` reports only `CONNECTING`, `OPEN` and `CLOSED`. Define "reconnecting" as `CONNECTING` after the connection was previously open, and "disconnected" as `CLOSED` (or no events for more than N seconds).
 32. **Live total value in the header:** is it computed on the frontend from SSE prices plus positions, or re-fetched from `/api/portfolio`? *Suggestion:* compute it on the frontend and re-fetch the portfolio after each trade or chat action.
 33. **Charting library:** "Lightweight Charts or Recharts" is described as canvas-based, but Recharts renders SVG. Also, neither library provides a treemap in the same way (Recharts has one, Lightweight Charts doesn't). *Suggestion:* Lightweight Charts for the price and P&L charts, plus Recharts `Treemap` (or a small custom div-based treemap) for the heatmap.
 34. **Empty states:** define what the heatmap, positions table and P&L chart show before any trade has been made.
 
 ### 13.8 Opportunities to Simplify
+
+> **✅ Resolved.** Outcome of each suggestion below, in order:
+>
+> - Drop root `docker-compose.yml` → **adopted**, removed from §4
+> - Composite primary keys → **adopted** in §7 (`watchlist` and `positions` keyed by `(user_id, ticker)`; `trades`, `portfolio_snapshots` and `chat_messages` keep UUIDs, since they're logs with many rows per key)
+> - Skip the second LLM round-trip → **already adopted** in §9 (13.4)
+> - Frontend-only price history → **already adopted** in §6 (13.2)
+> - Run Playwright from the host → **rejected** as a replacement: the container stays the canonical runner (reproducible, no local browser installs on Windows). Host runs are supported as an option via `BASE_URL` (§12)
+> - Limit frontend unit tests → **adopted** in §12, with a concrete list of logic units
+> - Longer snapshot interval / only record with positions → **rejected**: it conflicts with 13.3, which records snapshots always so the P&L chart has data from startup; ~2,880 rows/day is negligible
 
 - **Drop `docker-compose.yml` at the root.** The start/stop scripts already cover running the app, and a second path to maintain adds little.
 - **Use composite primary keys** `(user_id, ticker)` for `watchlist` and `positions` instead of a UUID `id` plus a UNIQUE constraint. That means one fewer column, and upserts become trivial.
