@@ -1,4 +1,4 @@
-# FinAlly — AI Trading Workstation
+# trading_workstation — AI Trading Workstation
 
 An AI-powered trading terminal: live streaming prices, a simulated $10k portfolio, and a chat assistant that can analyze your positions and place trades for you. Built entirely by coding agents as the capstone of an agentic AI coding course.
 
@@ -22,11 +22,11 @@ Open http://localhost:8000. Stop with `./scripts/stop_mac.sh` (or `stop_windows.
 Or run Docker directly:
 
 ```bash
-docker build -t finally .
-docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
+docker build -t trading-workstation .
+docker run -v trading-workstation-data:/app/db -p 8000:8000 --env-file .env trading-workstation
 ```
 
-To reset all data: `docker volume rm finally-data` (with the container stopped).
+To reset all data: `docker volume rm trading-workstation-data` (with the container stopped).
 
 ## Configuration
 
@@ -35,7 +35,7 @@ To reset all data: `docker volume rm finally-data` (with the container stopped).
 | `OPENROUTER_API_KEY` | For chat | LLM access. Without it, everything except chat works |
 | `MASSIVE_API_KEY` | No | Real market data. Empty → built-in simulator |
 | `LLM_MOCK` | No | `true` for deterministic mock chat replies (tests) |
-| `DB_PATH` | No | SQLite file. Default `db/finally.db` locally, `/app/db/finally.db` in Docker |
+| `DB_PATH` | No | SQLite file. Default `db/trading_workstation.db` locally, `/app/db/trading_workstation.db` in Docker |
 
 ## Stack
 

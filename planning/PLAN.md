@@ -64,7 +64,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 
 - **Frontend**: Next.js with TypeScript, built as a static export (`output: 'export'`), served by FastAPI as static files
 - **Backend**: FastAPI (Python), managed as a `uv` project
-- **Database**: SQLite, single file at `db/finally.db`, volume-mounted for persistence
+- **Database**: SQLite, single file at `db/trading_workstation.db`, volume-mounted for persistence
 - **Real-time data**: Server-Sent Events (SSE) — simpler than WebSockets, one-way server→client push, works everywhere
 - **AI integration**: LiteLLM → OpenRouter (Cerebras for fast inference), with structured outputs for trade execution
 - **Market data**: Environment-variable driven — simulator by default, real data via Massive API if key provided
@@ -85,7 +85,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 ## 4. Directory Structure
 
 ```
-finally/
+Trading_Workstation/
 ├── frontend/                 # Next.js TypeScript project (static export)
 ├── backend/                  # FastAPI uv project (Python)
 │   └── db/                   # Schema definitions, seed data, migration logic
@@ -99,7 +99,7 @@ finally/
 │   └── stop_windows.ps1      # Stop Docker container (Windows PowerShell)
 ├── test/                     # Playwright E2E tests + docker-compose.test.yml
 ├── db/                       # SQLite file location for local (non-Docker) runs
-│   └── .gitkeep              # Directory exists in repo; finally.db is gitignored
+│   └── .gitkeep              # Directory exists in repo; trading_workstation.db is gitignored
 ├── Dockerfile                # Multi-stage build (Node → Python)
 ├── .env                      # Environment variables (gitignored, .env.example committed)
 └── .gitignore
@@ -110,7 +110,7 @@ finally/
 - **`frontend/`** is a self-contained Next.js project. It knows nothing about Python. It talks to the backend via `/api/*` endpoints and `/api/stream/*` SSE endpoints. Internal structure is up to the Frontend Engineer agent.
 - **`backend/`** is a self-contained uv project with its own `pyproject.toml`. It owns all server logic including database initialization, schema, seed data, API routes, SSE streaming, market data, and LLM integration. Internal structure is up to the Backend/Market Data agents.
 - **`backend/db/`** contains schema SQL definitions and seed logic. The backend initializes the database at application startup — creating tables and seeding default data if the SQLite file doesn't exist or is empty (see §7).
-- **`db/`** at the top level is where the SQLite file (`db/finally.db`) is created when the backend runs locally, outside Docker. In Docker, the database lives in the named volume `finally-data` mounted at `/app/db` (see §11), not in this directory.
+- **`db/`** at the top level is where the SQLite file (`db/trading_workstation.db`) is created when the backend runs locally, outside Docker. In Docker, the database lives in the named volume `trading-workstation-data` mounted at `/app/db` (see §11), not in this directory.
 - **`planning/`** contains project-wide documentation, including this plan. All agents reference files here as the shared contract.
 - **`test/`** contains Playwright E2E tests and supporting infrastructure (e.g., `docker-compose.test.yml`). Unit tests live within `frontend/` and `backend/` respectively, following each framework's conventions.
 - **`scripts/`** contains start/stop scripts that wrap Docker commands.
@@ -130,8 +130,8 @@ MASSIVE_API_KEY=
 # Optional: Set to "true" for deterministic mock LLM responses (testing)
 LLM_MOCK=false
 
-# Optional: SQLite file location. Default: <project root>/db/finally.db
-# (project root = the parent directory of backend/). The Dockerfile sets it to /app/db/finally.db
+# Optional: SQLite file location. Default: <project root>/db/trading_workstation.db
+# (project root = the parent directory of backend/). The Dockerfile sets it to /app/db/trading_workstation.db
 DB_PATH=
 ```
 
@@ -234,7 +234,7 @@ This means:
 - No separate migration step
 - No manual database setup
 - Fresh Docker volumes start with a clean, seeded database automatically
-- Deleting `finally.db` and restarting gives a clean reset
+- Deleting `trading_workstation.db` and restarting gives a clean reset
 
 ### Schema
 
@@ -604,7 +604,7 @@ Stage 2: Python 3.12 slim
   - Copy backend/
   - uv sync (install Python dependencies from lockfile)
   - Copy frontend build output into a static/ directory
-  - Set ENV DB_PATH=/app/db/finally.db
+  - Set ENV DB_PATH=/app/db/trading_workstation.db
   - Expose port 8000
   - CMD: uvicorn serving FastAPI app
 ```
@@ -623,10 +623,10 @@ FastAPI serves the static frontend files and all API routes on port 8000.
 The SQLite database persists via a named Docker volume:
 
 ```bash
-docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
+docker run -v trading-workstation-data:/app/db -p 8000:8000 --env-file .env trading-workstation
 ```
 
-This is a **named volume, not a bind mount**: `finally-data` is managed by Docker and mounted at `/app/db`, where the backend writes `finally.db`. The project's top-level `db/` directory is **not** mounted into the container. A named volume avoids host-path problems (spaces in paths, Windows path translation) and keeps a live SQLite file out of synced folders such as OneDrive. To reset the data, run `docker volume rm finally-data` while the container is stopped.
+This is a **named volume, not a bind mount**: `trading-workstation-data` is managed by Docker and mounted at `/app/db`, where the backend writes `trading_workstation.db`. The project's top-level `db/` directory is **not** mounted into the container. A named volume avoids host-path problems (spaces in paths, Windows path translation) and keeps a live SQLite file out of synced folders such as OneDrive. To reset the data, run `docker volume rm trading-workstation-data` while the container is stopped.
 
 ### Start/Stop Scripts
 
@@ -735,17 +735,17 @@ Frontend and backend agents work in parallel, so these payload shapes need to be
 
 ### 13.5 Database & Schema
 
-> **✅ Resolved**: item 24 → §7 Schema says `users_profile.id` is the user id; item 25 → §7 initializes once at startup in the FastAPI lifespan, with idempotent `CREATE TABLE IF NOT EXISTS`, seeding only when the default user row is missing (§4 wording updated to match); item 26 → the new optional `DB_PATH` env var in §5 defaults to `<project root>/db/finally.db`, and the Dockerfile in §11 sets `/app/db/finally.db`.
+> **✅ Resolved**: item 24 → §7 Schema says `users_profile.id` is the user id; item 25 → §7 initializes once at startup in the FastAPI lifespan, with idempotent `CREATE TABLE IF NOT EXISTS`, seeding only when the default user row is missing (§4 wording updated to match); item 26 → the new optional `DB_PATH` env var in §5 defaults to `<project root>/db/trading_workstation.db`, and the Dockerfile in §11 sets `/app/db/trading_workstation.db`.
 
 24. **`users_profile` has no `user_id` column**, which contradicts "all tables include a `user_id` column". Clarify that `id` serves as the user id for this table.
 25. **Initialization timing:** "on startup (or first request)". Pick one. *Suggestion:* at application startup (FastAPI lifespan). That is deterministic and avoids a race between concurrent first requests.
-26. **Database path when running locally:** in the container the path is `/app/db/finally.db`, but running `uv run` inside `backend/` needs `../db/finally.db`. *Suggestion:* use a `DB_PATH` env var with a sensible default.
+26. **Database path when running locally:** in the container the path is `/app/db/trading_workstation.db`, but running `uv run` inside `backend/` needs `../db/trading_workstation.db`. *Suggestion:* use a `DB_PATH` env var with a sensible default.
 
 ### 13.6 Docker, Deployment & Environment
 
-> **✅ Resolved**: item 27 → a named volume `finally-data` (§11), with the top-level `db/` used only for local runs (§4 updated); item 28 → `--env-file` in Docker, `load_dotenv(<project root>/.env)` locally without overriding (§5); item 29 → the app starts, and chat returns a "not configured" assistant message (§5); item 30 → §11 Static File Serving (API routers first, `StaticFiles(html=True)` mounted last, mount skipped if the build is missing).
+> **✅ Resolved**: item 27 → a named volume `trading-workstation-data` (§11), with the top-level `db/` used only for local runs (§4 updated); item 28 → `--env-file` in Docker, `load_dotenv(<project root>/.env)` locally without overriding (§5); item 29 → the app starts, and chat returns a "not configured" assistant message (§5); item 30 → §11 Static File Serving (API routers first, `StaticFiles(html=True)` mounted last, mount skipped if the build is missing).
 
-27. **Volume contradiction:** §11 uses a *named* volume (`finally-data:/app/db`), but then says the project's `db/` directory maps to `/app/db`, which would be a *bind* mount. Pick one. A named volume is simpler and avoids Windows path issues; if you choose it, the top-level `db/` directory is only for local, non-Docker runs.
+27. **Volume contradiction:** §11 uses a *named* volume (`trading-workstation-data:/app/db`), but then says the project's `db/` directory maps to `/app/db`, which would be a *bind* mount. Pick one. A named volume is simpler and avoids Windows path issues; if you choose it, the top-level `db/` directory is only for local, non-Docker runs.
 28. **`.env` loading:** in Docker it's passed with `--env-file`, but for local dev the backend runs from `backend/` while `.env` lives at the project root. Specify how the backend finds it (e.g. `python-dotenv` pointed at the repo root, or just rely on the environment).
 29. **Missing `OPENROUTER_API_KEY`:** should the app start and run chat in a degraded mode, or fail fast? *Suggestion:* start normally, and have the chat endpoint return a clear error.
 30. **Static serving:** confirm that FastAPI mounts the static export at `/` *after* the API routers, so `/api/*` always takes precedence. Also confirm the Next.js export setting (`trailingSlash`, etc.) works with `StaticFiles(html=True)`.
