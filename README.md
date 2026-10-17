@@ -1,61 +1,61 @@
 # FinAlly — AI Trading Workstation
 
-A visually stunning AI-powered trading workstation that streams live market data, simulates portfolio trading, and integrates an LLM chat assistant that can analyze positions and execute trades via natural language.
-
-Built entirely by coding agents as a capstone project for an agentic AI coding course.
+An AI-powered trading terminal: live streaming prices, a simulated $10k portfolio, and a chat assistant that can analyze your positions and place trades for you. Built entirely by coding agents as the capstone of an agentic AI coding course.
 
 ## Features
 
-- **Live price streaming** via SSE with green/red flash animations
-- **Simulated portfolio** — $10k virtual cash, market orders, instant fills
-- **Portfolio visualizations** — heatmap (treemap), P&L chart, positions table
-- **AI chat assistant** — analyzes holdings, suggests and auto-executes trades
-- **Watchlist management** — track tickers manually or via AI
-- **Dark terminal aesthetic** — Bloomberg-inspired, data-dense layout
-
-## Architecture
-
-Single Docker container serving everything on port 8000:
-
-- **Frontend**: Next.js (static export) with TypeScript and Tailwind CSS
-- **Backend**: FastAPI (Python/uv) with SSE streaming
-- **Database**: SQLite with lazy initialization
-- **AI**: LiteLLM → OpenRouter (Cerebras inference) with structured outputs
-- **Market data**: Built-in GBM simulator (default) or Massive API (optional)
+- Live prices over SSE with green/red flash animations and sparklines
+- Market orders with instant fills, fractional shares and no fees
+- Portfolio heatmap, P&L chart and positions table
+- AI chat (LiteLLM → OpenRouter, Cerebras) that executes trades and edits the watchlist
+- Built-in market simulator, or real data via the Massive (Polygon.io) API
 
 ## Quick Start
 
 ```bash
-# Clone and configure
-cp .env.example .env
-# Add your OPENROUTER_API_KEY to .env
+cp .env.example .env          # then set OPENROUTER_API_KEY
+./scripts/start_mac.sh        # Windows: .\scripts\start_windows.ps1
+```
 
-# Run with Docker
+Open http://localhost:8000. Stop with `./scripts/stop_mac.sh` (or `stop_windows.ps1`); your data is kept.
+
+Or run Docker directly:
+
+```bash
 docker build -t finally .
 docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
-
-# Open http://localhost:8000
 ```
 
-## Environment Variables
+To reset all data: `docker volume rm finally-data` (with the container stopped).
 
-| Variable | Required | Description |
+## Configuration
+
+| Variable | Required | Purpose |
 |---|---|---|
-| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for AI chat |
-| `MASSIVE_API_KEY` | No | Massive (Polygon.io) key for real market data; omit to use simulator |
-| `LLM_MOCK` | No | Set `true` for deterministic mock LLM responses (testing) |
+| `OPENROUTER_API_KEY` | For chat | LLM access. Without it, everything except chat works |
+| `MASSIVE_API_KEY` | No | Real market data. Empty → built-in simulator |
+| `LLM_MOCK` | No | `true` for deterministic mock chat replies (tests) |
+| `DB_PATH` | No | SQLite file. Default `db/finally.db` locally, `/app/db/finally.db` in Docker |
 
-## Project Structure
+## Stack
+
+Single container on port 8000: **FastAPI** (Python, uv) serves the REST API, SSE stream and the **Next.js** static export (TypeScript, Tailwind). Data lives in **SQLite**, created and seeded automatically at startup.
+
+## Project Layout
 
 ```
-finally/
-├── frontend/    # Next.js static export
-├── backend/     # FastAPI uv project
-├── planning/    # Project documentation and agent contracts
-├── test/        # Playwright E2E tests
-├── db/          # SQLite volume mount (runtime)
-└── scripts/     # Start/stop helpers
+backend/    FastAPI app, market data, LLM, database
+frontend/   Next.js UI
+planning/   Specs and agent contracts (start with PLAN.md)
+scripts/    Start/stop helpers
+test/       Playwright E2E tests
 ```
+
+## Testing
+
+- Backend: `cd backend && uv run pytest`
+- Frontend: `cd frontend && npm test`
+- E2E: `docker compose -f test/docker-compose.test.yml up --build`
 
 ## License
 
