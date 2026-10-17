@@ -1,10 +1,10 @@
-# FinAlly — AI Trading Workstation
+# trading_workstation — AI Trading Workstation
 
 ## Project Specification
 
 ## 1. Vision
 
-FinAlly (Finance Ally) is a visually stunning AI-powered trading workstation that streams live market data, lets users trade a simulated portfolio, and integrates an LLM chat assistant that can analyze positions and execute trades on the user's behalf. It looks and feels like a modern Bloomberg terminal with an AI copilot.
+trading_workstation is a visually stunning AI-powered trading workstation that streams live market data, lets users trade a simulated portfolio, and integrates an LLM chat assistant that can analyze positions and execute trades on the user's behalf. It looks and feels like a modern Bloomberg terminal with an AI copilot.
 
 This is the capstone project for an agentic AI coding course. It is built entirely by Coding Agents demonstrating how orchestrated AI agents can produce a production-quality full-stack application. Agents interact through files in `planning/`.
 
@@ -492,7 +492,7 @@ If a trade or watchlist change fails validation (e.g., insufficient cash), the L
 
 ### System Prompt Guidance
 
-The LLM should be prompted as "FinAlly, an AI trading assistant" with instructions to:
+The LLM should be prompted as "trading_workstation, an AI trading assistant" with instructions to:
 - Analyze portfolio composition, risk concentration, and P&L
 - Suggest trades with reasoning
 - Execute trades when the user asks or agrees
@@ -518,7 +518,7 @@ The mock replaces **only the LLM call**. Its output goes through the same parsin
 | `add <TICKER>` | `message: "Adding <TICKER> to your watchlist."`, one add change |
 | `remove <TICKER>` | `message: "Removing <TICKER> from your watchlist."`, one remove change |
 | `fail` | Simulates an LLM failure, which exercises the Failure Handling path |
-| anything else | `message: "This is a mock response from FinAlly."`, no actions |
+| anything else | `message: "This is a mock response from trading_workstation."`, no actions |
 
 `<qty>` matches `\d+(\.\d+)?` and `<TICKER>` matches `[A-Za-z.]+`. The pattern may appear anywhere in the message.
 
@@ -578,11 +578,11 @@ When the state is `CLOSED`, the frontend creates a new `EventSource` every 5 sec
 
 | Element | State | Display |
 |---------|-------|---------|
-| Watchlist | No tickers | "Your watchlist is empty — add a ticker above or ask FinAlly" |
+| Watchlist | No tickers | "Your watchlist is empty — add a ticker above or ask trading_workstation" |
 | Watchlist row | No price yet | Price shows `—`, sparkline area blank |
 | Main chart | No ticker selected | Auto-select the first watchlist ticker on load; if the watchlist is empty, show "Select a ticker" |
 | Main chart | Selected, fewer than 2 points | "Waiting for price data…" |
-| Heatmap | No positions | "No positions yet — buy shares with the trade bar or ask FinAlly" |
+| Heatmap | No positions | "No positions yet — buy shares with the trade bar or ask trading_workstation" |
 | Positions table | No positions | A single row with the same message |
 | P&L chart | Fewer than 2 snapshots | "Collecting portfolio history…" (a snapshot is recorded at startup and every 30s, so this resolves quickly) |
 | Chat | No history | A frontend-only welcome message with 2–3 example prompts (not stored in the DB) |
