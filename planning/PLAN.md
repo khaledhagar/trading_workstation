@@ -127,6 +127,13 @@ OPENROUTER_API_KEY=your-openrouter-api-key-here
 # If not set, the built-in market simulator is used (recommended for most users)
 MASSIVE_API_KEY=
 
+# Optional (only used with MASSIVE_API_KEY): force the Massive mode instead of auto-detecting the plan.
+# "snapshot" = paid plans (live/delayed prices), "eod" = free plan (end-of-day prices). Empty = auto-detect
+MASSIVE_MODE=
+
+# Optional (only used in snapshot mode): seconds between Massive polls. Default 15, minimum 2
+MASSIVE_POLL_INTERVAL=
+
 # Optional: Set to "true" for deterministic mock LLM responses (testing)
 LLM_MOCK=false
 
@@ -139,6 +146,7 @@ DB_PATH=
 
 - If `MASSIVE_API_KEY` is set and non-empty → backend uses Massive REST API for market data
 - If `MASSIVE_API_KEY` is absent or empty → backend uses the built-in market simulator
+- `MASSIVE_MODE` and `MASSIVE_POLL_INTERVAL` are ignored without a Massive key. Invalid values are logged and replaced by the defaults
 - If `LLM_MOCK=true` → backend returns deterministic mock LLM responses (for E2E tests)
 - **In Docker**, variables are passed with `docker run --env-file .env`; no `.env` file is copied into the image
 - **Locally**, at startup the backend calls `python-dotenv`'s `load_dotenv(<project root>/.env)`, where project root is the parent of `backend/`, resolved from the code's location rather than the working directory. It does not override variables already set in the environment, so the same code works in both cases
@@ -151,6 +159,8 @@ DB_PATH=
 ### Two Implementations, One Interface
 
 Both the simulator and the Massive client implement the same abstract interface. The backend selects which to use based on the environment variable. All downstream code (SSE streaming, price cache, frontend) is agnostic to the source.
+
+The implementation design, with code for every module, is in [`MARKET_DATA_DESIGN.md`](MARKET_DATA_DESIGN.md).
 
 ### Simulator (Default)
 
@@ -166,12 +176,17 @@ Both the simulator and the Massive client implement the same abstract interface.
 ### Massive API (Optional)
 
 - REST API polling (not WebSocket) — simpler, works on all tiers
-- Polls for the tracked ticker set (see Tracked Tickers) on a configurable interval
-- **One call per poll**, regardless of ticker count, via the multi-ticker snapshot endpoint: `GET /v2/snapshot/locale/us/markets/stocks/tickers?tickers=AAPL,MSFT,...`. This is what makes the free tier viable
-- Free tier (5 calls/min): poll every 15 seconds
-- Paid tiers: poll every 2-15 seconds depending on tier
-- Parses REST response into the same format as the simulator: price = `lastTrade.p` (falling back to `day.c` when absent), **reference price** = `prevDay.c` (previous close)
-- **Unknown tickers**: when a ticker is added, the backend makes one snapshot call for that ticker. If Massive returns no data for it, the add is rejected with 400 `"Unknown ticker: XYZ"`
+- The plan tier decides what's available: the live snapshot endpoint is **not on the free plan** (see `MASSIVE_API.md` §1). The backend therefore runs in one of two modes, detected automatically from the first response (a 403 on the snapshot endpoint means the free plan), or forced with `MASSIVE_MODE`:
+
+| Mode | Plans | How | Interval |
+|---|---|---|---|
+| `snapshot` | Starter and above | **One call per poll** for all tracked tickers, regardless of count: `GET /v2/snapshot/locale/us/markets/stocks/tickers?tickers=AAPL,MSFT,...` | `MASSIVE_POLL_INTERVAL` (default 15 s). Paid plans have no rate limit |
+| `eod` | Basic (free, 5 calls/min) | End-of-day prices from the Daily Market Summary (`GET /v2/aggs/grouped/locale/us/market/stocks/{date}`), which returns every US stock in one call. Loads the last two trading days | Refreshed every 30 min, with calls spaced ≥ 12 s apart |
+
+- **Snapshot mode parsing**: price = the first value > 0 of `lastTrade.p` → `min.c` → `day.c` → `prevDay.c`; **reference price** = `prevDay.c` (previous close)
+- **EOD mode parsing**: price = the latest trading day's close; **reference price** = the close of the trading day before. Prices don't move during the day, so every SSE event reports `direction: "flat"`. The simulator remains the default and the better demo
+- **Unknown tickers**: in snapshot mode, adding a ticker makes one snapshot call for it; in EOD mode it's looked up in the already-loaded whole-market data (no call). If Massive has no data for it, the add is rejected with 400 `"Unknown ticker: XYZ"`
+- **Provider unavailable**: if Massive is down, rate-limited, or still loading its first data at startup (up to ~20 s), an add fails with 503 (see §8 Errors). The background poller keeps the last known prices and retries on its next cycle
 
 ### Ticker Rules
 
@@ -183,7 +198,7 @@ Both the simulator and the Massive client implement the same abstract interface.
 - The set of tickers the market data source prices and the SSE stream emits is **watchlist ∪ tickers with an open position**
 - Removing a held ticker from the watchlist therefore does not stop its price updates, so the position stays valued; it only disappears from the watchlist panel
 - Selling a position to zero for a ticker that isn't watched removes it from the tracked set
-- When a ticker is added, the source **seeds the cache immediately**: the simulator with its seed price, and Massive with the price from the validation snapshot call. A trade right after an add therefore always has a price
+- When a ticker is added, the source **seeds the cache immediately**: the simulator with its seed price, and Massive with the price from the validation snapshot call (snapshot mode) or the loaded end-of-day data (EOD mode). A trade right after an add therefore always has a price
 - Defensive fallback: a trade on a ticker with no price in the cache is rejected with 400 `"No price available for XYZ yet"`
 
 ### Shared Price Cache
@@ -204,7 +219,7 @@ Both the simulator and the Massive client implement the same abstract interface.
 **Event format** — one unnamed event (default `message` type) per tick, whose `data` is a JSON object keyed by ticker containing every tracked ticker:
 
 ```text
-data: {"AAPL": {"ticker": "AAPL", "price": 190.12, "previous_price": 190.05, "timestamp": "2026-01-01T12:00:00Z", "direction": "up", "change_percent": 0.48}, "MSFT": {...}}
+data: {"AAPL": {"ticker": "AAPL", "price": 190.12, "previous_price": 190.05, "timestamp": "2026-01-01T12:00:00.500Z", "direction": "up", "change_percent": 0.48}, "MSFT": {...}}
 ```
 
 - `direction` is one of `"up"`, `"down"`, `"flat"` (price vs. previous price)
@@ -323,7 +338,7 @@ All tables except `users_profile` include a `user_id` column defaulting to `"def
 
 ### Conventions
 
-- All request and response bodies are JSON; all timestamps are ISO 8601 UTC with a `Z` suffix (e.g. `"2026-01-01T12:00:00Z"`)
+- All request and response bodies are JSON; all timestamps are ISO 8601 UTC with a `Z` suffix. **Price timestamps** (SSE events and `GET /api/watchlist`) include milliseconds, e.g. `"2026-01-01T12:00:00.500Z"`, because the simulator ticks every 500 ms and whole seconds would make consecutive ticks collide. Other timestamps may use whole seconds (e.g. `"2026-01-01T12:00:00Z"`); clients must accept both
 - Tickers are normalized to uppercase by the backend
 - Monetary values are returned as numbers rounded to 2 decimals; percentages as numbers (e.g. `2.5` means 2.5%)
 
@@ -337,6 +352,7 @@ All errors use FastAPI's default shape: `{"detail": "Insufficient cash: need $1,
 | 404 | `DELETE /api/watchlist/{ticker}` for a ticker not in the watchlist |
 | 422 | Malformed request body (FastAPI/Pydantic validation, e.g. missing field, quantity ≤ 0) |
 | 500 | Unexpected server error |
+| 503 | The market data provider (Massive) can't answer right now: down, rate-limited, or still loading at startup. `detail` is always `"Market data unavailable, try again shortly"`; the provider's error stays in the server log. Never returned by the simulator |
 
 ### Trading Rules
 
@@ -546,7 +562,8 @@ The frontend is a single-page application with a dense, terminal-inspired layout
   - **Main price chart and P&L chart**: TradingView **Lightweight Charts** (canvas, built for streaming financial series). Check its current docs, since the series API changed between major versions, and keep its default attribution enabled (license requirement)
   - **Sparklines**: a small hand-rolled inline SVG `<polyline>` component, with no library. A full chart instance per watchlist row is needless overhead
   - **Portfolio heatmap**: Recharts `Treemap` with a custom content renderer for the colors and labels. Recharts renders SVG, which is fine for a handful of rectangles
-- Price flash effect: on receiving a new price, briefly apply a CSS class with background color transition, then remove it
+- Price flash effect: when a ticker's `price` differs from the last value the frontend saw for it, briefly apply a CSS class with background color transition, then remove it. Compare prices rather than relying on `direction` alone: with Massive, the same entry (and the same `direction`) is re-sent every 500 ms until the next poll
+- Price history buffers (sparklines, main chart): append a point **only when a ticker's `timestamp` changes**, otherwise one 15-second Massive poll becomes 30 identical points. For Lightweight Charts, convert with `Date.parse(timestamp) / 1000` and drop any point whose time isn't greater than the previous one (the library requires strictly increasing times)
 - All API calls go to the same origin (`/api/*`) — no CORS configuration needed
 - Tailwind CSS for styling with a custom dark theme
 
