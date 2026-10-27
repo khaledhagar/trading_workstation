@@ -26,7 +26,14 @@ from .client import (
     PlanNotEntitledError,
     RateLimitedError,
 )
-from .parse import NY, last_weekday_on_or_before, market_close_utc, parse_snapshot, previous_weekday
+from .parse import (
+    NY,
+    has_price_data,
+    last_weekday_on_or_before,
+    market_close_utc,
+    parse_snapshot,
+    previous_weekday,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +51,7 @@ class MassiveSource(MarketDataSource):
         poll_interval: float = 15.0,         # snapshot mode
         eod_refresh: float = 1800.0,         # eod mode
         error_backoff: float = 60.0,         # after 429s, failed detection and eod failures
-        free_tier_spacing: float = 12.0,     # 5 calls/min
+        free_tier_spacing: float = 12.5,     # 5 calls/min, plus a margin for network jitter
         ready_timeout: float = 20.0,         # longest an add waits for the first load
         eod_max_calls: int = 5,
         base_url: str = BASE_URL,
@@ -80,8 +87,9 @@ class MassiveSource(MarketDataSource):
 
     @property
     def client(self) -> MassiveClient:
+        # Before start() or after stop(): a contract error (→ 503), not a bare RuntimeError (→ 500).
         if self._client is None:
-            raise RuntimeError("MassiveSource.start() has not been called")
+            raise MarketDataUnavailableError("Massive source is not running")
         return self._client
 
     # --- MarketDataSource ----------------------------------------------------
@@ -113,9 +121,13 @@ class MassiveSource(MarketDataSource):
 
         if self._mode == "snapshot":
             snaps = await self.client.snapshots([ticker])        # 1 call
-            parsed = parse_snapshot(snaps[ticker]) if ticker in snaps else None
-            if parsed is None:
+            if ticker not in snaps:                              # Massive doesn't know it
                 raise UnknownTickerError(ticker)
+            parsed = parse_snapshot(snaps[ticker])
+            if parsed is None:
+                if not has_price_data(snaps[ticker]):            # daily reset, 3:30–4:00 AM ET
+                    raise MarketDataUnavailableError(f"No snapshot data for {ticker} right now")
+                raise UnknownTickerError(ticker)                 # priced below one cent
             self.cache.update(ticker, parsed.price, parsed.reference, parsed.timestamp)
         else:
             if ticker not in self._latest:                       # 0 calls

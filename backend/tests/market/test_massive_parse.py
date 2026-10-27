@@ -5,6 +5,7 @@ import pytest
 
 from app.market.massive.parse import (
     _positive,
+    has_price_data,
     last_weekday_on_or_before,
     market_close_utc,
     ns_to_datetime,
@@ -64,6 +65,28 @@ def test_docs_sample_response_element():
 def test_nothing_usable():
     assert parse_snapshot({"ticker": "X", "day": {"c": 0}}) is None
     assert parse_snapshot({}) is None
+
+
+def test_sub_cent_values_are_skipped_in_the_fallback_chain():
+    p = parse_snapshot({"lastTrade": {"p": 0.004}, "min": {"c": 0.02}, "prevDay": {"c": 0.03}})
+    assert p.price == 0.02 and p.reference == 0.03
+    assert parse_snapshot({"min": {"c": 0.004}, "prevDay": {"c": 0.003}}) is None
+
+
+@pytest.mark.parametrize("snap, expected", [
+    ({"min": {"c": 0}, "day": {"c": 0}, "prevDay": {"c": 0}}, False),   # daily reset
+    ({}, False),
+    ({"lastTrade": None, "min": "x"}, False),
+    ({"min": {"c": 0.004}}, True),                                      # sub-cent, but priced
+    ({"prevDay": {"c": 7.0}}, True),
+])
+def test_has_price_data(snap, expected):
+    assert has_price_data(snap) is expected
+
+
+def test_parse_grouped_skips_sub_cent_closes():
+    data = {"results": [{"T": "AAPL", "c": 190.0}, {"T": "ABCDW", "c": 0.004}, {"T": "PNNY", "c": 0.005}]}
+    assert parse_grouped(data) == {"AAPL": 190.0, "PNNY": 0.005}
 
 
 def test_missing_reference():

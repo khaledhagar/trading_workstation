@@ -127,6 +127,13 @@ def test_prices_stay_positive_with_frequent_events():
         assert all(p > 0 for p in e.step().values())
 
 
+def test_price_is_floored_at_one_cent():
+    e = SimulatorEngine(random.Random(3), event_mean_seconds=math.inf)
+    e.add("ZZZ")
+    e._states["ZZZ"].price = 0.001                         # far below any realistic path
+    assert e.step()["ZZZ"] == 0.01
+
+
 def test_volatility_matches_gbm():
     e = SimulatorEngine(random.Random(3), event_mean_seconds=NO_EVENTS)
     r = log_returns(e, ["AAPL"], 20_000)["AAPL"]

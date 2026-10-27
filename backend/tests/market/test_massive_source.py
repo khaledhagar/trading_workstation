@@ -30,9 +30,16 @@ def test_rejects_invalid_mode():
         MassiveSource(PriceCache(), "k", mode="live")  # type: ignore[arg-type]
 
 
-def test_client_before_start_raises():
-    with pytest.raises(RuntimeError):
+def test_client_before_start_raises_unavailable():
+    with pytest.raises(MarketDataUnavailableError):
         _ = MassiveSource(PriceCache(), "k").client
+
+
+async def test_add_before_start_is_unavailable_not_a_crash():
+    src = MassiveSource(PriceCache(), "k", mode="snapshot", transport=FakeMassive().transport)
+    with pytest.raises(MarketDataUnavailableError):
+        await src.add_ticker("AAPL")
+    assert "AAPL" not in src.tracked_tickers()
 
 
 async def test_stop_closes_http_client():
@@ -41,7 +48,7 @@ async def test_stop_closes_http_client():
     http = src.client._http
     await src.stop()
     assert http.is_closed
-    with pytest.raises(RuntimeError):
+    with pytest.raises(MarketDataUnavailableError):
         _ = src.client
 
 
@@ -133,13 +140,53 @@ async def test_snapshot_unknown_ticker_rejected():
     await src.stop()
 
 
-async def test_snapshot_add_with_no_usable_price_is_unknown():
+async def test_snapshot_add_during_daily_reset_is_unavailable():
+    # 3:30–4:00 AM ET: Massive knows the ticker but every price field is zero.
     fake = FakeMassive()
-    fake.raw_snapshots["DEAD"] = {"ticker": "DEAD", "day": {"c": 0}, "prevDay": {"c": 0}}
+    fake.raw_snapshots["MSFT"] = {
+        "ticker": "MSFT", "lastTrade": {"p": 0}, "min": {"c": 0}, "day": {"c": 0}, "prevDay": {"c": 0},
+    }
     src = massive(fake, mode="snapshot", poll_interval=10)
     await src.start([])
+    with pytest.raises(MarketDataUnavailableError):
+        await src.add_ticker("MSFT")
+    assert "MSFT" not in src.tracked_tickers() and "MSFT" not in src.cache
+    await src.stop()
+
+
+async def test_snapshot_add_of_sub_cent_ticker_is_unknown():
+    fake = FakeMassive()
+    fake.raw_snapshots["ABCDW"] = {"ticker": "ABCDW", "min": {"c": 0.004}, "prevDay": {"c": 0.003}}
+    src = massive(fake, mode="snapshot", poll_interval=10)
+    await src.start([])
+    with pytest.raises(UnknownTickerError, match="Unknown ticker: ABCDW"):
+        await src.add_ticker("ABCDW")
+    assert "ABCDW" not in src.cache
+    await src.stop()
+
+
+async def test_sub_cent_poll_keeps_last_price():
+    fake = FakeMassive()
+    src = massive(fake, mode="snapshot", poll_interval=0.01)
+    await src.start(["AAPL"])
+    await wait_until(lambda: "AAPL" in src.cache)
+    fake.raw_snapshots["AAPL"] = {"ticker": "AAPL", "min": {"c": 0.004}}
+    n = len(fake.requests)
+    await wait_until(lambda: len(fake.requests) > n + 2)
+    assert src.cache.get_price("AAPL") == 190.0
+    await src.stop()
+
+
+async def test_eod_sub_cent_ticker_is_unknown():
+    days = {
+        "2026-10-16": {"AAPL": 191.0, "ABCDW": 0.004},
+        "2026-10-15": {"AAPL": 189.0, "ABCDW": 0.003},
+    }
+    src = massive(FakeMassive(days=days), mode="eod")
+    await src.start(["AAPL"])
+    await wait_until(lambda: "AAPL" in src.cache)
     with pytest.raises(UnknownTickerError):
-        await src.add_ticker("DEAD")
+        await src.add_ticker("ABCDW")
     await src.stop()
 
 
@@ -256,7 +303,7 @@ async def test_forced_eod_skips_the_probe():
 async def test_free_tier_spacing_applies_until_snapshot_detected():
     src = MassiveSource(PriceCache(), "k", transport=FakeMassive().transport)
     await src.start([])
-    assert src.client.min_interval == 12.0
+    assert src.client.min_interval == 12.5      # 5 calls/min plus a jitter margin
     await src.stop()
     forced = MassiveSource(PriceCache(), "k", mode="snapshot", transport=FakeMassive().transport)
     await forced.start([])

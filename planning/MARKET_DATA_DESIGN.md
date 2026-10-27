@@ -29,6 +29,10 @@ Most of the design is taken unchanged from the documents above. These are the po
 | D6 | **Detection probes `AAPL` when nothing is tracked** | An empty `tickers=` parameter returns the *whole market* (10k+ rows). Never send it empty |
 | D7 | **`PriceCache.version` dropped** | Nothing reads it: the SSE stream emits every tick regardless (keeps the staleness indicator green) |
 | D8 | **`add_ticker` waits at most 20 s** for Massive's first load, then raises `MarketDataUnavailableError` (503) | In end-of-day mode the first load can take ~40 s (calls spaced 12 s apart on the free tier). A request shouldn't hang that long |
+| D9 | **The cache never holds a price below $0.01 after rounding.** `PriceCache.update` checks the rounded price; the Massive parsers skip sub-cent values, so such tickers count as unknown; the simulator floors at $0.01 | Added after code review (REVIEW.md §3.1). A `0.004` price passed the `> 0` check, was stored as `0.00`, and trades would have filled for free |
+| D10 | **A snapshot whose price fields are all zero → 503, not "Unknown ticker"** | Added after code review (§3.2). That's Massive's 3:30–4:00 AM ET reset: the ticker is real, and the data will be back shortly |
+| D11 | **Free-tier spacing is 12.5 s**, not exactly 12 s | Added after code review (§3.6). Exactly 12 s puts 5 calls in a 60 s window with no margin for network jitter |
+| D12 | **`MassiveSource.client` raises `MarketDataUnavailableError` before `start()` / after `stop()`**; a second `SimulatorSource.start()` doesn't re-seed tracked tickers | Added after code review (§3.3, §3.4). Contract errors map to 503 instead of a bare `RuntimeError` (500), and C7 holds unconditionally |
 
 Items that need a matching PLAN.md update are listed in §13.
 
@@ -260,6 +264,16 @@ from datetime import datetime, timezone
 
 from .models import PriceUpdate
 
+MIN_PRICE = 0.01   # D9: anything rounding below a cent would be stored as 0.00
+
+
+def is_priceable(value: object) -> bool:
+    """A finite number (not a bool) that is still >= 1 cent after rounding to cents."""
+    return (
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and math.isfinite(value) and round(value, 2) >= MIN_PRICE
+    )
+
 
 class PriceCache:
     """Latest price per tracked ticker. Written by exactly one source, read by everyone.
@@ -281,8 +295,9 @@ class PriceCache:
 
         - previous_price is the old entry's price (or the new price on the first write).
         - reference_price=None keeps the old reference; on the first write it defaults to the price.
+        - Raises ValueError unless the price is >= $0.01 after rounding (D9).
         """
-        if not (math.isfinite(price) and price > 0):
+        if not is_priceable(price):
             raise ValueError(f"Invalid price for {ticker}: {price!r}")
         if reference_price is not None and not (math.isfinite(reference_price) and reference_price > 0):
             reference_price = None
@@ -477,6 +492,7 @@ import math
 import random
 from dataclasses import dataclass
 
+from ..cache import MIN_PRICE
 from .seeds import (
     DEFAULT_PROFILES,
     UNKNOWN_DRIFT,
@@ -571,6 +587,9 @@ class SimulatorEngine:
                 sign = 1.0 if self.rng.random() < 0.5 else -1.0
                 st.price *= 1.0 + sign * self.rng.uniform(*self.event_range)
 
+            if st.price < MIN_PRICE:              # D9: unreachable from realistic seeds
+                st.price = MIN_PRICE
+
             out[ticker] = st.price
         return out
 ```
@@ -611,7 +630,8 @@ class SimulatorSource(MarketDataSource):
 
     async def start(self, tickers: Iterable[str]) -> None:
         for ticker in tickers:
-            self._seed(ticker)                     # C1: priced before the first tick
+            if ticker not in self.engine.tickers():   # D12: a second start() keeps references (C7)
+                self._seed(ticker)                     # C1: priced before the first tick
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="market-simulator")
 
@@ -713,7 +733,7 @@ snapshot call for the tracked tickers (or ["AAPL"] if none, D6)
   └─ other error  → stay undetected; retry after the backoff
 ```
 
-In `eod` mode the price only changes when a new trading day is published, so every SSE event reports `direction: "flat"`. That's accurate for the data available. The simulator remains the default and the better demo.
+In `eod` mode the price only changes when a new trading day is published, so SSE events report `direction: "flat"`, except for one refresh after a new day loads, when `direction` shows the day-over-day move. That's accurate for the data available. The simulator remains the default and the better demo.
 
 ### 6.2 `massive/parse.py`: pure functions
 
@@ -722,6 +742,8 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from ..cache import is_priceable
 
 NY = ZoneInfo("America/New_York")
 
@@ -750,31 +772,45 @@ def ns_to_datetime(ns: object) -> datetime | None:
     return datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
 
 
+def _price(value: object) -> float | None:
+    """_positive, and also >= 1 cent after rounding (D9)."""
+    number = _positive(value)
+    return number if number is not None and is_priceable(number) else None
+
+
+PRICE_FIELDS = (("lastTrade", "p"), ("min", "c"), ("day", "c"), ("prevDay", "c"))
+
+
+def _field(snap: dict, obj: str, key: str) -> object:
+    section = snap.get(obj)
+    return section.get(key) if isinstance(section, dict) else None
+
+
 def parse_snapshot(snap: dict, now: datetime | None = None) -> ParsedPrice | None:
     """One element of the snapshot `tickers[]` array → price, reference, timestamp.
 
     Returns None when no usable price exists (e.g. the 3:30–4:00 AM ET daily reset)."""
 
-    def field(obj: str, key: str) -> float | None:
-        return _positive((snap.get(obj) or {}).get(key))
-
-    price = (
-        field("lastTrade", "p")
-        or field("min", "c")
-        or field("day", "c")
-        or field("prevDay", "c")
-    )
-    if price is None:
+    for obj, key in PRICE_FIELDS:
+        price = _price(_field(snap, obj, key))      # D9: values below one cent are skipped
+        if price is not None:
+            break
+    else:
         return None
     timestamp = ns_to_datetime(snap.get("updated")) or now or datetime.now(timezone.utc)
-    return ParsedPrice(price=price, reference=field("prevDay", "c"), timestamp=timestamp)
+    return ParsedPrice(price=price, reference=_positive(_field(snap, "prevDay", "c")), timestamp=timestamp)
+
+
+def has_price_data(snap: dict) -> bool:
+    """False when every price field is missing or zero: Massive's 3:30-4:00 AM ET reset (D10)."""
+    return any(_positive(_field(snap, obj, key)) is not None for obj, key in PRICE_FIELDS)
 
 
 def parse_grouped(data: dict) -> dict[str, float]:
     """Grouped-daily response → {ticker: close}. Empty dict for a day with no data."""
     closes: dict[str, float] = {}
     for row in data.get("results") or []:
-        ticker, close = row.get("T"), _positive(row.get("c"))
+        ticker, close = row.get("T"), _price(row.get("c"))   # D9
         if isinstance(ticker, str) and close is not None:
             closes[ticker] = close
     return closes
@@ -942,7 +978,9 @@ from .client import (
     PlanNotEntitledError,
     RateLimitedError,
 )
-from .parse import NY, last_weekday_on_or_before, market_close_utc, parse_snapshot, previous_weekday
+from .parse import (
+    NY, has_price_data, last_weekday_on_or_before, market_close_utc, parse_snapshot, previous_weekday,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -960,7 +998,7 @@ class MassiveSource(MarketDataSource):
         poll_interval: float = 15.0,         # snapshot mode
         eod_refresh: float = 1800.0,         # eod mode
         error_backoff: float = 60.0,         # after 429s and eod failures
-        free_tier_spacing: float = 12.0,     # 5 calls/min
+        free_tier_spacing: float = 12.5,     # 5 calls/min + jitter margin (D11)
         ready_timeout: float = 20.0,         # D8
         eod_max_calls: int = 5,
         base_url: str = BASE_URL,
@@ -996,8 +1034,8 @@ class MassiveSource(MarketDataSource):
 
     @property
     def client(self) -> MassiveClient:
-        if self._client is None:
-            raise RuntimeError("MassiveSource.start() has not been called")
+        if self._client is None:                 # D12: before start() / after stop()
+            raise MarketDataUnavailableError("Massive source is not running")
         return self._client
 
     # --- MarketDataSource ----------------------------------------------------
@@ -1027,9 +1065,13 @@ class MassiveSource(MarketDataSource):
 
         if self._mode == "snapshot":
             snaps = await self.client.snapshots([ticker])        # 1 call
-            parsed = parse_snapshot(snaps[ticker]) if ticker in snaps else None
-            if parsed is None:
+            if ticker not in snaps:
                 raise UnknownTickerError(ticker)
+            parsed = parse_snapshot(snaps[ticker])
+            if parsed is None:
+                if not has_price_data(snaps[ticker]):            # D10: daily reset -> 503
+                    raise MarketDataUnavailableError(f"No snapshot data for {ticker} right now")
+                raise UnknownTickerError(ticker)                 # D9: priced below one cent
             self.cache.update(ticker, parsed.price, parsed.reference, parsed.timestamp)
         else:
             if ticker not in self._latest:                       # 0 calls

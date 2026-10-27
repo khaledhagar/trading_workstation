@@ -10,7 +10,9 @@
 
 ## 1. Verdict
 
-**Approve, with one fix recommended before the trade code is built on it.**
+> **Update (2026-10-27): all findings are resolved.** See §7 for what changed. The suite is now **241 passed**, coverage 99%. The market data package is ready for the app integration step (lifespan, routes, error handlers), which is the next build step and not part of this commit.
+
+**Original verdict: approve, with one fix recommended before the trade code is built on it.**
 
 The implementation follows `MARKET_DATA_DESIGN.md` closely, the code is clean and well commented, and the test suite is thorough and stable. I found no defect in the normal paths (simulator, Massive snapshot mode, Massive end-of-day mode). There is one medium-severity edge case: a price below half a cent is stored as `0.00`, which the trade code would fill at (§3.1). The rest are low-severity edge cases and notes.
 
@@ -137,3 +139,34 @@ Minor style points (no action needed):
 | Soon | §3.2: return 503 rather than "Unknown ticker" when Massive has the ticker but no usable price |
 | Optional | §3.3 guard in `SimulatorSource.start`; §3.6 spacing margin of 12.5 to 13 s; add `pytest-cov` to the dev dependencies |
 | Docs | PLAN.md §6: EOD `direction` is `flat` except right after a new trading day (§3.5). PLAN.md §5: values below the minimum poll interval are clamped (§3.8) |
+
+---
+
+## 7. Resolution (2026-10-27)
+
+Every finding above was addressed in a follow-up commit on `feature/market-data-backend`. `MARKET_DATA_DESIGN.md` records the decisions as **D9–D12**, and `PLAN.md` §5/§6 are updated to match.
+
+| Finding | Resolution | Tests added or changed |
+|---|---|---|
+| §3.1 Sub-cent price stored as `0.00` | `PriceCache.update` now requires the price to be ≥ $0.01 **after** rounding (new `is_priceable()` / `MIN_PRICE`). The Massive parsers skip sub-cent values, so such a ticker is rejected as unknown (snapshot and EOD). The simulator engine floors prices at $0.01 so a tick can never fail | `test_cache_never_stores_a_zero_price`, `test_is_priceable`, sub-cent cases in `test_cache_rejects_bad_price`, `test_sub_cent_values_are_skipped_in_the_fallback_chain`, `test_parse_grouped_skips_sub_cent_closes`, `test_snapshot_add_of_sub_cent_ticker_is_unknown`, `test_sub_cent_poll_keeps_last_price`, `test_eod_sub_cent_ticker_is_unknown`, `test_price_is_floored_at_one_cent` |
+| §3.2 Real ticker "Unknown" during the daily reset | New `has_price_data()`. A ticker absent from the response is still `UnknownTickerError` (400); one that is present with every price field zero raises `MarketDataUnavailableError` (503 "try again shortly") | `test_snapshot_add_during_daily_reset_is_unavailable` (replaces `test_snapshot_add_with_no_usable_price_is_unknown`), `test_has_price_data` |
+| §3.3 Second `start()` resets references | `SimulatorSource.start()` seeds only tickers it doesn't already track | `test_second_start_keeps_reference_and_price` |
+| §3.4 `RuntimeError` before `start()` | `MassiveSource.client` raises `MarketDataUnavailableError` before `start()` or after `stop()`, so an early add maps to 503, not 500 | `test_client_before_start_raises_unavailable`, `test_add_before_start_is_unavailable_not_a_crash`, `test_stop_closes_http_client` |
+| §3.5 EOD `direction` after a new day | Docs only: PLAN.md §6 and the design doc now describe the one-refresh up/down after a new trading day | — |
+| §3.6 No spacing margin on the free tier | `free_tier_spacing` default 12.0 → **12.5 s** | `test_free_tier_spacing_applies_until_snapshot_detected` |
+| §3.7 SSE cadence drift | **No change, by design.** A real-time smoke run confirmed it is cosmetic: an occasional simulator tick is never streamed, and every event still carries a fresh timestamp and correct fields | — |
+| §3.8 Poll-interval clamp wording | Docs only: PLAN.md §5 now says values below the minimum are raised to 2 | — |
+| §5 `pytest-cov` missing | Added to `[dependency-groups].dev`. `uv run pytest --cov=app` now works out of the box | — |
+
+### Verification after the fixes
+
+| Check | Result |
+|---|---|
+| `uv run pytest` | **241 passed** (216 before; 25 new or updated tests), 0 failures |
+| `uv run pytest --cov=app` | **99%** (604 statements, 2 missed, the same two defensive lines as before) |
+| Edge-case probe re-run | `0.004` → rejected; a second `start()` keeps reference `250.0`; an all-zeros snapshot → `MarketDataUnavailableError`; an add before `start()` → `MarketDataUnavailableError` |
+| Real-time smoke run (factory → simulator → `price_events`, production 500 ms interval, 11 tickers) | `retry: 2000` first, then well-formed events with all 11 tickers and the exact contract fields, prices moving, clean stop |
+
+### Still to build (next step, outside the market data package)
+
+`app/main.py` lifespan, `db.py` (`tracked_tickers`, `resync_market`), the `/api/stream/prices` route, the error handlers in design §9.3, and the watchlist/trade wiring in §9.4–§9.7.

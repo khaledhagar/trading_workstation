@@ -71,6 +71,18 @@ async def test_start_twice_keeps_one_task():
     await src.stop()
 
 
+async def test_second_start_keeps_reference_and_price():
+    src = simulator()
+    await src.start(["TSLA"])
+    await wait_until(lambda: src.cache.get("TSLA").price != 250.0)
+    before = src.cache.get("TSLA")
+    await src.start(["TSLA"])
+    after = src.cache.get("TSLA")
+    assert after.reference_price == 250.0                   # C7: still the seed
+    assert after is before                                  # not re-seeded
+    await src.stop()
+
+
 async def test_ticks_at_fixed_cadence():
     src = SimulatorSource(PriceCache(), interval=0.02, rng=random.Random(1))
     calls = {"n": 0}

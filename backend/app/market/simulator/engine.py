@@ -13,6 +13,7 @@ import math
 import random
 from dataclasses import dataclass
 
+from ..cache import MIN_PRICE
 from .seeds import (
     DEFAULT_PROFILES,
     UNKNOWN_DRIFT,
@@ -118,6 +119,11 @@ class SimulatorEngine:
                 move = sign * self.rng.uniform(*self.event_range)
                 st.price *= 1.0 + move
                 logger.debug("event: %s %+.1f%%", ticker, move * 100)
+
+            # GBM never reaches 0, but a long run could drift below a cent, which the
+            # cache rejects. Floor it so a tick can't fail. Unreachable from realistic seeds.
+            if st.price < MIN_PRICE:
+                st.price = MIN_PRICE
 
             out[ticker] = st.price
         return out

@@ -146,7 +146,7 @@ DB_PATH=
 
 - If `MASSIVE_API_KEY` is set and non-empty → backend uses Massive REST API for market data
 - If `MASSIVE_API_KEY` is absent or empty → backend uses the built-in market simulator
-- `MASSIVE_MODE` and `MASSIVE_POLL_INTERVAL` are ignored without a Massive key. Invalid values are logged and replaced by the defaults
+- `MASSIVE_MODE` and `MASSIVE_POLL_INTERVAL` are ignored without a Massive key. Invalid values are logged and replaced by the defaults; a `MASSIVE_POLL_INTERVAL` below the minimum is logged and raised to 2
 - If `LLM_MOCK=true` → backend returns deterministic mock LLM responses (for E2E tests)
 - **In Docker**, variables are passed with `docker run --env-file .env`; no `.env` file is copied into the image
 - **Locally**, at startup the backend calls `python-dotenv`'s `load_dotenv(<project root>/.env)`, where project root is the parent of `backend/`, resolved from the code's location rather than the working directory. It does not override variables already set in the environment, so the same code works in both cases
@@ -183,10 +183,10 @@ The implementation design, with code for every module, is in [`MARKET_DATA_DESIG
 | `snapshot` | Starter and above | **One call per poll** for all tracked tickers, regardless of count: `GET /v2/snapshot/locale/us/markets/stocks/tickers?tickers=AAPL,MSFT,...` | `MASSIVE_POLL_INTERVAL` (default 15 s). Paid plans have no rate limit |
 | `eod` | Basic (free, 5 calls/min) | End-of-day prices from the Daily Market Summary (`GET /v2/aggs/grouped/locale/us/market/stocks/{date}`), which returns every US stock in one call. Loads the last two trading days | Refreshed every 30 min, with calls spaced ≥ 12 s apart |
 
-- **Snapshot mode parsing**: price = the first value > 0 of `lastTrade.p` → `min.c` → `day.c` → `prevDay.c`; **reference price** = `prevDay.c` (previous close)
-- **EOD mode parsing**: price = the latest trading day's close; **reference price** = the close of the trading day before. Prices don't move during the day, so every SSE event reports `direction: "flat"`. The simulator remains the default and the better demo
-- **Unknown tickers**: in snapshot mode, adding a ticker makes one snapshot call for it; in EOD mode it's looked up in the already-loaded whole-market data (no call). If Massive has no data for it, the add is rejected with 400 `"Unknown ticker: XYZ"`
-- **Provider unavailable**: if Massive is down, rate-limited, or still loading its first data at startup (up to ~20 s), an add fails with 503 (see §8 Errors). The background poller keeps the last known prices and retries on its next cycle
+- **Snapshot mode parsing**: price = the first value ≥ $0.01 of `lastTrade.p` → `min.c` → `day.c` → `prevDay.c`; **reference price** = `prevDay.c` (previous close)
+- **EOD mode parsing**: price = the latest trading day's close; **reference price** = the close of the trading day before. Prices don't move during the day, so SSE events report `direction: "flat"`, except for up to one refresh (30 min) after a new trading day is loaded, when `direction` shows the move from the previous day. The simulator remains the default and the better demo
+- **Unknown tickers**: in snapshot mode, adding a ticker makes one snapshot call for it; in EOD mode it's looked up in the already-loaded whole-market data (no call). If Massive has no data for it, or its price is below one cent (it would round to $0.00), the add is rejected with 400 `"Unknown ticker: XYZ"`
+- **Provider unavailable**: if Massive is down, rate-limited, still loading its first data at startup (up to ~20 s), or resetting its snapshots (3:30–4:00 AM ET, when every price field is zero), an add fails with 503 (see §8 Errors). The background poller keeps the last known prices and retries on its next cycle
 
 ### Ticker Rules
 

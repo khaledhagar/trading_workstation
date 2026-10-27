@@ -32,7 +32,8 @@ class SimulatorSource(MarketDataSource):
 
     async def start(self, tickers: Iterable[str]) -> None:
         for ticker in tickers:
-            self._seed(ticker)                     # C1: priced before the first tick
+            if ticker not in self.engine.tickers():   # a second start() keeps references (C7)
+                self._seed(ticker)                     # C1: priced before the first tick
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="market-simulator")
 

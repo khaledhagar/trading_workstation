@@ -13,6 +13,7 @@ from app.market import (
     UnknownTickerError,
     normalize_ticker,
 )
+from app.market.cache import is_priceable
 from app.market.errors import MarketDataError
 from app.market.models import PriceUpdate, format_timestamp
 
@@ -138,12 +139,28 @@ def test_cache_sub_cent_move_is_flat():
     assert cache.update("AAPL", 190.004).direction == "flat"
 
 
-@pytest.mark.parametrize("bad", [0.0, -5.0, math.nan, math.inf, None, "190"])
+@pytest.mark.parametrize("bad", [0.0, -5.0, math.nan, math.inf, None, "190", True, 0.004, 0.0049])
 def test_cache_rejects_bad_price(bad):
     cache = PriceCache()
     with pytest.raises(ValueError):
         cache.update("AAPL", bad)  # type: ignore[arg-type]
     assert "AAPL" not in cache
+
+
+def test_cache_never_stores_a_zero_price():
+    # 0.004 is > 0 but rounds to 0.00, which would fill trades for free.
+    cache = PriceCache()
+    cache.update("ABCW", 0.02)
+    with pytest.raises(ValueError):
+        cache.update("ABCW", 0.004)
+    assert cache.get_price("ABCW") == 0.02                  # last good price kept
+    assert cache.update("XYZ", 0.005).price == 0.01         # rounds up to one cent: accepted
+
+
+@pytest.mark.parametrize("value, ok", [(0.01, True), (0.005, True), (0.0049, False), (0.0, False),
+                                       (190.0, True), (math.nan, False), (True, False), ("1", False)])
+def test_is_priceable(value, ok):
+    assert is_priceable(value) is ok
 
 
 def test_cache_uses_given_timestamp():
