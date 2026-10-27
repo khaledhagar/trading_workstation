@@ -6,7 +6,7 @@ It builds on three research/spec documents and turns them into complete, runnabl
 
 | Document | What it contributes |
 |---|---|
-| [`PLAN.md`](PLAN.md) §6, §7, §8 | Requirements: tracked tickers, ticker rules, SSE format, trade rules, error codes |
+| [`PLAN.md`](../PLAN.md) §6, §7, §8 | Requirements: tracked tickers, ticker rules, SSE format, trade rules, error codes |
 | [`MARKET_INTERFACE.md`](MARKET_INTERFACE.md) | The `MarketDataSource` contract (C1–C8) and module layout |
 | [`MARKET_SIMULATOR.md`](MARKET_SIMULATOR.md) | The GBM + two-factor correlation + events model |
 | [`MASSIVE_API.md`](MASSIVE_API.md) | Massive endpoints, plan tiers, response shapes, gotchas |

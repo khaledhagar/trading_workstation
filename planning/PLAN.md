@@ -160,7 +160,7 @@ DB_PATH=
 
 Both the simulator and the Massive client implement the same abstract interface. The backend selects which to use based on the environment variable. All downstream code (SSE streaming, price cache, frontend) is agnostic to the source.
 
-The implementation design, with code for every module, is in [`MARKET_DATA_DESIGN.md`](MARKET_DATA_DESIGN.md).
+A summary of the market data design and its key data is in [`MARKET_DATA_SUMMARY.md`](MARKET_DATA_SUMMARY.md). The full implementation design, with code for every module, is archived in [`archive/MARKET_DATA_DESIGN.md`](archive/MARKET_DATA_DESIGN.md).
 
 ### Simulator (Default)
 
@@ -703,4 +703,4 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 
 ## 13. Review Log
 
-The resolved review questions from documentation review are in [`PLAN_REVIEW.md`](PLAN_REVIEW.md). Every outcome is already reflected in this spec.
+The resolved review questions from documentation review are in [`archive/PLAN_REVIEW.md`](archive/PLAN_REVIEW.md). Every outcome is already reflected in this spec.
