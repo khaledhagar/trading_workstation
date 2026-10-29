@@ -1,0 +1,44 @@
+# E2E test stack: the app (mock LLM, simulator, fresh DB) + a Playwright runner.
+# Run from the project root:
+#   docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from playwright
+#   docker compose -f test/docker-compose.test.yml down -v
+# The Playwright image tag must match "@playwright/test" in test/package.json.
+name: trading-workstation-e2e
+
+services:
+  # Not "app": .app is an HSTS-preloaded TLD, so Chromium would force https://app:8000
+  trading-workstation:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: trading-workstation:test
+    environment:
+      LLM_MOCK: "true"
+      MASSIVE_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+      DB_PATH: /app/db/trading_workstation.db
+    # No named volume: every run starts from a freshly seeded database
+    tmpfs:
+      - /app/db
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.64.1-noble
+    depends_on:
+      trading-workstation:
+        condition: service_healthy
+    working_dir: /work
+    environment:
+      BASE_URL: http://trading-workstation:8000
+      CI: "true"
+    volumes:
+      - ./:/work
+      # Keep Linux node_modules inside the container, separate from any host install
+      - /work/node_modules
+    ipc: host
+    command: ["bash", "-c", "(if [ -f package-lock.json ]; then npm ci; else npm install; fi) && npx playwright test"]

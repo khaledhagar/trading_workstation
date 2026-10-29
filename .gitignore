@@ -205,3 +205,38 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ---- trading_workstation ----
+# SQLite database (local runs); keep the directory itself
+db/*.db
+db/*.db-*
+db/*.db*
+!db/.gitkeep
+*.db-wal
+*.db-shm
+
+# Keep the env template
+!.env.example
+
+# Frontend (Next.js)
+node_modules/
+frontend/node_modules/
+frontend/out/
+.next/
+frontend/.next/
+frontend/coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Backend static copy of the frontend export (local runs)
+backend/static/
+
+# Playwright / E2E
+test/node_modules/
+test/test-results/
+test/playwright-report/
+test/blob-report/
+test/playwright/.cache/
+
+# Playwright MCP screenshots
+.playwright-mcp/

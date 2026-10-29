@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #0d1117;
+  --color-panel: #121923;
+  --color-raised: #18212d;
+  --color-line: #243041;
+  --color-line-soft: #1b2532;
+  --color-ink: #d7dee8;
+  --color-muted: #7e8b9c;
+  --color-faint: #4f5b6b;
+  --color-accent: #ecad0a;
+  --color-blue: #209dd7;
+  --color-purple: #753991;
+  --color-purple-hi: #8a47aa;
+  --color-up: #22c47a;
+  --color-down: #ef4f5a;
+
+  --font-sans: "Barlow Semi Condensed", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+}
+
+html,
+body {
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Price flash: the color is set instantly, then fades out over 500 ms once the class is removed. */
+.flash-cell {
+  transition: background-color 500ms ease-out;
+}
+.flash-up {
+  background-color: rgba(34, 196, 122, 0.26);
+  transition: none;
+}
+.flash-down {
+  background-color: rgba(239, 79, 90, 0.26);
+  transition: none;
+}
+
+@layer components {
+/* Panels share one frame; the title row is the only chrome. */
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 30px;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.panel-title strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.field {
+  background: var(--color-base);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  color: var(--color-ink);
+  height: 30px;
+  padding: 0 0.5rem;
+  outline: none;
+}
+.field:focus {
+  border-color: var(--color-blue);
+}
+.field::placeholder {
+  color: var(--color-faint);
+}
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: typing 1s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.dot-live {
+  animation: pulse-dot 2s infinite;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-cell,
+  .typing-dot,
+  .dot-live {
+    animation: none;
+    transition: none;
+  }
+}
