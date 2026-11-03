@@ -123,12 +123,69 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| FND-01 | Phase 1 | Pending |
+| FND-02 | Phase 1 | Pending |
+| FND-03 | Phase 1 | Pending |
+| FND-04 | Phase 1 | Pending |
+| FND-05 | Phase 1 | Pending |
+| FND-06 | Phase 1 | Pending |
+| FND-07 | Phase 1 | Pending |
+| MKT-01 | Phase 1 | Pending |
+| MKT-02 | Phase 2 | Pending |
+| MKT-03 | Phase 1 | Pending |
+| MKT-04 | Phase 2 | Pending |
+| MKT-05 | Phase 2 | Pending |
+| MKT-06 | Phase 2 | Pending |
+| MKT-07 | Phase 1 | Pending |
+| WATCH-01 | Phase 1 | Pending |
+| WATCH-02 | Phase 2 | Pending |
+| WATCH-03 | Phase 2 | Pending |
+| WATCH-04 | Phase 1 | Pending |
+| WATCH-05 | Phase 2 | Pending |
+| TRADE-01 | Phase 3 | Pending |
+| TRADE-02 | Phase 3 | Pending |
+| TRADE-03 | Phase 3 | Pending |
+| TRADE-04 | Phase 3 | Pending |
+| TRADE-05 | Phase 3 | Pending |
+| TRADE-06 | Phase 3 | Pending |
+| TRADE-07 | Phase 3 | Pending |
+| PORT-01 | Phase 3 | Pending |
+| PORT-02 | Phase 3 | Pending |
+| PORT-03 | Phase 5 | Pending |
+| PORT-04 | Phase 3 | Pending |
+| PORT-05 | Phase 5 | Pending |
+| PORT-06 | Phase 5 | Pending |
+| CHAT-01 | Phase 4 | Pending |
+| CHAT-02 | Phase 4 | Pending |
+| CHAT-03 | Phase 4 | Pending |
+| CHAT-04 | Phase 4 | Pending |
+| CHAT-05 | Phase 4 | Pending |
+| CHAT-06 | Phase 4 | Pending |
+| CHAT-07 | Phase 4 | Pending |
+| CHAT-08 | Phase 4 | Pending |
+| CHAT-09 | Phase 4 | Pending |
+| CHAT-10 | Phase 4 | Pending |
+| UI-01 | Phase 1 | Pending |
+| UI-02 | Phase 1 | Pending |
+| UI-03 | Phase 1 | Pending |
+| UI-04 | Phase 3 | Pending |
+| UI-05 | Phase 2 | Pending |
+| UI-06 | Phase 5 | Pending |
+| UI-07 | Phase 5 | Pending |
+| DEPLOY-01 | Phase 6 | Pending |
+| DEPLOY-02 | Phase 6 | Pending |
+| DEPLOY-03 | Phase 6 | Pending |
+| DEPLOY-04 | Phase 6 | Pending |
+| TEST-01 | Phase 6 | Pending |
+| TEST-02 | Phase 6 | Pending |
+| TEST-03 | Phase 6 | Pending |
+| TEST-04 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 57 total
-- Mapped to phases: 0
-- Unmapped: 57 ⚠️
+- Mapped to phases: 57
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-11-03*
-*Last updated: 2026-11-03 after initial definition*
+*Last updated: 2026-11-03 after roadmap creation (traceability mapped)*
