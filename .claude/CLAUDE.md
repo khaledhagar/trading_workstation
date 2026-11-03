@@ -1,5 +1,3 @@
-<!-- GSD:project-start source:PROJECT.md -->
-
 ## Project
 
 **trading_workstation — AI Trading Workstation**
@@ -19,57 +17,23 @@ A visually stunning, Bloomberg-style AI trading workstation that streams live (s
 - **Testing**: E2E runs with `LLM_MOCK=true` in a Playwright container version-matched to `@playwright/test`
 - **Secrets**: `.env` is gitignored and must never be read into agent context or committed; commit `.env.example` instead
 
-<!-- GSD:project-end -->
+## Code Layout
 
-<!-- GSD:stack-start source:STACK.md -->
+- `backend/app/main.py` — FastAPI app, lifespan (DB → market data → snapshot task), error mapping, static mount
+- `backend/app/market/` — `MarketDataSource` interface, simulator (GBM), Massive client, `PriceCache`, SSE generator
+- `backend/app/db.py` — schema, seed data, connection helper; `backend/app/portfolio.py` — trades, valuation, snapshots, watchlist
+- `backend/app/chat.py` — LLM prompt/context, structured output, mock mode, action execution
+- `frontend/src/` — Next.js app (`app/page.tsx`), components, hooks (`usePriceStream`, `usePriceFlash`), pure logic in `lib/`
+- `test/` — Playwright E2E suite and `docker-compose.test.yml`
 
-## Technology Stack
+## Testing
 
-Technology stack not yet documented. Will populate after codebase mapping or first phase.
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-
-## Architecture
-
-Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:skills-start source:skills/ -->
+- Backend: `cd backend && uv run pytest`
+- Frontend: `cd frontend && npm test` and `npm run lint` (type-check)
+- E2E: `docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from e2e`
 
 ## Project Skills
 
 | Skill | Description | Path |
 |-------|-------------|------|
 | cerebras-inference | Use this to write code to call an LLM using LiteLLM and OpenRouter with the Cerebras inference provider | `.claude/skills/cerebras/SKILL.md` |
-<!-- GSD:skills-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd-fast` for a trivial task inline, with no subagents and no PLAN.md
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->

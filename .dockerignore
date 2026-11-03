@@ -1,0 +1,15 @@
+.git
+.env
+.planning
+.claude
+.playwright-mcp
+planning
+db
+test
+**/node_modules
+**/.next
+**/out
+**/.venv
+**/__pycache__
+**/.pytest_cache
+backend/static

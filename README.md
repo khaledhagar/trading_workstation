@@ -54,8 +54,19 @@ test/       Playwright E2E tests
 ## Testing
 
 - Backend: `cd backend && uv run pytest`
-- Frontend: `cd frontend && npm test`
-- E2E: `docker compose -f test/docker-compose.test.yml up --build`
+- Frontend: `cd frontend && npm test` (type-check: `npm run lint`)
+- E2E (app + Playwright containers, mock LLM):
+  `docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from e2e`
+- E2E from the host against a running app: `cd test && npm install && npx playwright install chromium && npx playwright test` (set `BASE_URL` if not `http://localhost:8000`)
+
+## Local Development (without Docker)
+
+```bash
+cd backend && uv run uvicorn app.main:app --reload --port 8000   # API on :8000
+cd frontend && npm run dev                                         # UI on :3000, proxies /api to :8000
+```
+
+To serve the built UI from the backend instead: `cd frontend && npm run build`, then start the backend with `STATIC_DIR=../frontend/out`.
 
 ## License
 
