@@ -1,3 +1,14 @@
+"""Pure simulation math: no asyncio, no clock, no cache. Deterministic given an RNG.
+
+    S(t+Δt) = S(t) · exp((μ − σ²/2)·Δt + σ·√Δt·Z)      exact GBM step, never negative
+    Z_i     = w_m·M + w_s·S_sector(i) + w_e·ε_i         w_m² + w_s² + w_e² = 1
+    event:  S ← S · (1 ± U(0.02, 0.05))  with p = tick_seconds / event_mean_seconds
+
+Defaults give a correlation of 0.6 within a sector, 0.3 across sectors and 0 for
+tickers without a sector (MARKET_SIMULATOR.md §1).
+"""
+
+import logging
 import math
 import random
 from dataclasses import dataclass
@@ -10,6 +21,8 @@ from .seeds import (
     TickerProfile,
 )
 
+logger = logging.getLogger(__name__)
+
 TRADING_SECONDS_PER_YEAR = 252 * 6.5 * 3600  # 5,896,800
 
 
@@ -20,8 +33,6 @@ class _State:
 
 
 class SimulatorEngine:
-    """GBM with a two-factor (market + sector) correlation model and random events. Pure math."""
-
     def __init__(
         self,
         rng: random.Random | None = None,
@@ -35,19 +46,25 @@ class SimulatorEngine:
     ) -> None:
         if tick_seconds <= 0 or time_scale <= 0:
             raise ValueError("tick_seconds and time_scale must be > 0")
-        if market_weight**2 + sector_weight**2 > 1:
-            raise ValueError("market_weight² + sector_weight² must be ≤ 1")
+        if market_weight < 0 or sector_weight < 0 or market_weight**2 + sector_weight**2 > 1 + 1e-12:
+            raise ValueError("weights must be ≥ 0 with market_weight² + sector_weight² ≤ 1")
+        if event_mean_seconds <= 0:
+            raise ValueError("event_mean_seconds must be > 0 (use math.inf to disable events)")
+        low, high = event_range
+        if not 0 <= low <= high < 1:
+            raise ValueError("event_range must satisfy 0 ≤ low ≤ high < 1")
 
         self.rng = rng or random.Random()
         self.dt = tick_seconds * time_scale / TRADING_SECONDS_PER_YEAR
         self._sqrt_dt = math.sqrt(self.dt)
         self.w_m = market_weight
         self.w_s = sector_weight
-        self.w_e = math.sqrt(1.0 - market_weight**2 - sector_weight**2)
-        self.event_prob = tick_seconds / event_mean_seconds
+        self.w_e = math.sqrt(max(0.0, 1.0 - market_weight**2 - sector_weight**2))
+        self.event_prob = min(1.0, tick_seconds / event_mean_seconds)   # inf → 0.0 (events off)
         self.event_range = event_range
         self._states: dict[str, _State] = {}
 
+    # --- membership ----------------------------------------------------------
     def add(self, ticker: str) -> float:
         """Start simulating `ticker` and return its seed price. Idempotent."""
         state = self._states.get(ticker)
@@ -72,8 +89,12 @@ class SimulatorEngine:
         state = self._states.get(ticker)
         return state.profile if state else None
 
+    # --- simulation ----------------------------------------------------------
     def step(self) -> dict[str, float]:
-        """Advance every ticker by one tick. Returns {ticker: new full-precision price}."""
+        """Advance every ticker by one tick. Returns {ticker: new full-precision price}.
+
+        Draw order follows dict order, which is deterministic, so a fixed RNG seed
+        reproduces a run exactly."""
         gauss = self.rng.gauss
         market = gauss(0.0, 1.0)
         sectors: dict[str, float] = {}
@@ -94,7 +115,9 @@ class SimulatorEngine:
 
             if self.event_prob and self.rng.random() < self.event_prob:
                 sign = 1.0 if self.rng.random() < 0.5 else -1.0
-                st.price *= 1.0 + sign * self.rng.uniform(*self.event_range)
+                move = sign * self.rng.uniform(*self.event_range)
+                st.price *= 1.0 + move
+                logger.debug("event: %s %+.1f%%", ticker, move * 100)
 
             out[ticker] = st.price
         return out

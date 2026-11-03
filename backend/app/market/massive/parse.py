@@ -1,3 +1,5 @@
+"""Pure parsing of Massive responses and trading-day helpers. No I/O."""
+
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -25,16 +27,25 @@ def _positive(value: object) -> float | None:
 
 
 def ns_to_datetime(ns: object) -> datetime | None:
-    if isinstance(ns, bool) or not isinstance(ns, (int, float)) or ns <= 0:
+    """Unix nanoseconds (the snapshot `updated` field) → aware UTC datetime."""
+    if isinstance(ns, bool) or not isinstance(ns, (int, float)) or not math.isfinite(ns) or ns <= 0:
         return None
-    return datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
+    try:
+        return datetime.fromtimestamp(ns / 1e9, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def parse_snapshot(snap: dict, now: datetime | None = None) -> ParsedPrice | None:
-    """One element of the snapshot `tickers[]` array → price, reference, timestamp."""
+    """One element of the snapshot `tickers[]` array → price, reference, timestamp.
+
+    Price is the first value > 0 of lastTrade.p → min.c → day.c → prevDay.c;
+    reference is prevDay.c. Returns None when no usable price exists
+    (e.g. during the 3:30–4:00 AM ET daily reset)."""
 
     def field(obj: str, key: str) -> float | None:
-        return _positive((snap.get(obj) or {}).get(key))
+        section = snap.get(obj)
+        return _positive(section.get(key)) if isinstance(section, dict) else None
 
     price = (
         field("lastTrade", "p")
@@ -51,15 +62,19 @@ def parse_snapshot(snap: dict, now: datetime | None = None) -> ParsedPrice | Non
 def parse_grouped(data: dict) -> dict[str, float]:
     """Grouped-daily response → {ticker: close}. Empty dict for a day with no data."""
     closes: dict[str, float] = {}
-    for row in data.get("results") or []:
+    results = data.get("results") if isinstance(data, dict) else None
+    for row in results if isinstance(results, list) else []:
+        if not isinstance(row, dict):
+            continue
         ticker, close = row.get("T"), _positive(row.get("c"))
-        if isinstance(ticker, str) and close is not None:
+        if isinstance(ticker, str) and ticker and close is not None:
             closes[ticker] = close
     return closes
 
 
+# --- trading-day helpers -----------------------------------------------------
 def last_weekday_on_or_before(d: date) -> date:
-    while d.weekday() >= 5:
+    while d.weekday() >= 5:            # Sat=5, Sun=6
         d -= timedelta(days=1)
     return d
 

@@ -4,10 +4,15 @@ from datetime import datetime, timezone
 from .models import PriceUpdate
 
 
+def _valid_price(value: float) -> bool:
+    return isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+
+
 class PriceCache:
     """Latest price per tracked ticker. Written by exactly one source, read by everyone.
 
     All access happens on the event loop thread, so no locking is needed.
+    The cache never invents a price: a missing ticker has no price yet.
     """
 
     def __init__(self) -> None:
@@ -20,10 +25,15 @@ class PriceCache:
         reference_price: float | None = None,
         timestamp: datetime | None = None,
     ) -> PriceUpdate:
-        """Record a new price. reference_price=None keeps the old reference (or the price on first write)."""
-        if not (math.isfinite(price) and price > 0):
+        """Record a new price for `ticker`.
+
+        - previous_price is the old entry's price (or the new price on the first write).
+        - reference_price=None (or an unusable value) keeps the old reference;
+          on the first write it defaults to the price.
+        """
+        if not _valid_price(price):
             raise ValueError(f"Invalid price for {ticker}: {price!r}")
-        if reference_price is not None and not (math.isfinite(reference_price) and reference_price > 0):
+        if reference_price is not None and not _valid_price(reference_price):
             reference_price = None
 
         old = self._prices.get(ticker)

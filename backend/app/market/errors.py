@@ -1,3 +1,6 @@
+"""Market-data exceptions and the HTTP status each one maps to (PLAN.md §8 Errors)."""
+
+
 class MarketDataError(Exception):
     """Base class for market-data errors."""
 

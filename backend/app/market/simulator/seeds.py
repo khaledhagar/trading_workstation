@@ -9,7 +9,10 @@ class TickerProfile:
     sector: str | None    # None = uncorrelated with everything
 
 
+# The first ten are PLAN.md §7's default watchlist; the rest are common additions
+# that deserve a realistic seed and a sector instead of the random fallback.
 DEFAULT_PROFILES: dict[str, TickerProfile] = {
+    #                     seed    μ     σ     sector
     "AAPL":  TickerProfile(190.0, 0.08, 0.25, "tech"),
     "GOOGL": TickerProfile(175.0, 0.08, 0.28, "tech"),
     "MSFT":  TickerProfile(420.0, 0.08, 0.24, "tech"),

@@ -15,11 +15,12 @@ class PriceUpdate:
     ticker: str
     price: float            # rounded to 2 decimals
     previous_price: float   # price before this update (== price on the first update)
-    reference_price: float  # baseline for change %: seed price or previous close
+    reference_price: float  # baseline for change %: seed price (simulator) or previous close (Massive)
     timestamp: datetime     # timezone-aware UTC
 
     @property
     def direction(self) -> Direction:
+        # Compares rounded prices (what the user sees), so a sub-cent move is "flat".
         if self.price > self.previous_price:
             return "up"
         if self.price < self.previous_price:
@@ -30,10 +31,12 @@ class PriceUpdate:
     def change_percent(self) -> float:
         if self.reference_price <= 0:
             return 0.0
-        return round((self.price - self.reference_price) / self.reference_price * 100, 2)
+        # "+ 0.0" turns -0.0 (a tiny loss rounded away) into 0.0, so the UI never shows "-0.00%".
+        return round((self.price - self.reference_price) / self.reference_price * 100, 2) + 0.0
 
     def to_dict(self) -> dict:
-        """The field set of an SSE entry and a GET /api/watchlist row."""
+        """The exact field set of an SSE entry and a GET /api/watchlist row (PLAN.md §6, §8).
+        reference_price is internal and deliberately left out."""
         return {
             "ticker": self.ticker,
             "price": self.price,
